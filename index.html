@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Empire Builder — Solo Strategy (v4.1)</title>
+  <style>
+    :root{ --bg:#0f172a; --panel:#111827; --muted:#334155; --text:#e5e7eb; --primary:#60a5fa; }
+    *{box-sizing:border-box}
+    body{margin:0; font-family:system-ui,Segoe UI,Roboto,Ubuntu; background:linear-gradient(180deg,#0b1225,#0f172a 20%); color:var(--text)}
+    header{padding:10px 16px; display:flex; gap:12px; align-items:center; justify-content:space-between; border-bottom:1px solid #1f2937; background:#0b1225; position:sticky; top:0; z-index:10}
+    header h1{font-size:18px; margin:0}
+    .scorebar{display:flex; gap:8px; align-items:center}
+    .pill{background:#0c1426; border:1px solid #1f2937; border-radius:999px; padding:6px 10px; font-size:12px}
+    .container{display:grid; grid-template-columns: 1fr 360px; gap:16px; padding:16px; max-width:1250px; margin:0 auto}
+    @media (max-width: 980px){ .container{grid-template-columns:1fr} }
+    .board-wrap{background:var(--panel); border:1px solid #1f2937; border-radius:16px; padding:12px}
+    .toolbar{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px}
+    button{background:#1f2937; color:var(--text); border:1px solid #2a3646; padding:8px 10px; border-radius:10px; cursor:pointer}
+    button.primary{background:#1e3a8a; border-color:#2746a0}
+    button:disabled{opacity:.5; cursor:not-allowed}
+    input, textarea{background:#0c1426; color:var(--text); border:1px solid #1f2937; border-radius:10px; padding:8px}
+    .grid{display:grid; grid-template-columns: repeat(10, 1fr); gap:2px; background:#0b1020; border:1px solid #0b1020; border-radius:8px; overflow:hidden}
+    .cell{width:min(8.4vw,56px); height:min(8.4vw,56px); max-width:56px; max-height:56px; min-width:28px; min-height:28px; display:flex; align-items:center; justify-content:center; font-size:14px; user-select:none; background:#0f1a33; border:1px solid #0c1426; position:relative}
+    .cell .coord{position:absolute; font-size:10px; opacity:.4; left:4px; top:2px}
+    .plain{background:#14203b}
+    .village{background:#15301f}
+    .river{background:#0f243f}
+    .mountain{background:#2b1f1f}
+    .capital{outline:2px solid var(--primary); box-shadow:0 0 0 2px rgba(96,165,250,.35) inset}
+    .controlled{border-color:#435f8f}
+    .enemy{box-shadow: inset 0 0 0 2px rgba(239,68,68,.7)}
+    .enemyFlag{outline:2px solid #ef4444; box-shadow:0 0 0 2px rgba(239,68,68,.35) inset}
+    .side{display:flex; flex-direction:column; gap:12px}
+    .card{background:var(--panel); border:1px solid #1f2937; border-radius:16px; padding:12px}
+    .card h3{margin:0 0 8px 0; font-size:16px}
+    .stats{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px}
+    .stat{background:#101827; border:1px solid #1e293b; border-radius:12px; padding:8px; text-align:center}
+    .stat .label{opacity:.7; font-size:12px}
+    .stat .value{font-weight:700; font-size:18px}
+    .shop-list{display:grid; gap:6px}
+    .shop-item{display:flex; align-items:center; justify-content:space-between; gap:8px; background:#0e1726; border:1px solid #1e293b; border-radius:10px; padding:8px}
+    .shop-item .meta{font-size:12px; opacity:.8}
+    .log{height:160px; overflow:auto; background:#0b0f1d; border:1px solid #1f2937; border-radius:12px; padding:8px; font-size:12px; line-height:1.35}
+    .list{display:grid; gap:6px; max-height:220px; overflow:auto}
+    .row{display:flex; align-items:center; justify-content:space-between; gap:8px; background:#0b1223; border:1px solid #1f2a3a; border-radius:10px; padding:8px}
+  </style>
+</head>
+<body>
+<header>
+  <h1>🏰 Empire Builder — Solo Strategy (v4.1)</h1>
+  <div class="scorebar">
+    <span class="pill" id="turnPill">Turn 0 / 20</span>
+    <span class="pill" id="vsPill">You 0 vs 0 Shadow</span>
+    <span class="pill" id="modePill" style="display:none">Placement Mode</span>
+  </div>
+  <div style="display:flex; gap:8px; align-items:center">
+    <button id="newGameBtn" class="primary">New Map</button>
+    <button id="saveBtn">Save</button>
+    <button id="loadBtn">Load</button>
+  </div>
+</header>
+<main class="container">
+  <section class="board-wrap">
+    <div class="toolbar">
+      <button id="placeCapitalBtn" style="display:none">Place Capital</button>
+      <button id="expandBtn">Expand (select a cell)</button>
+      <button id="endTurnBtn" class="primary">End Turn</button>
+      <button id="cancelBtn" title="Cancel placement" style="display:none">Cancel</button>
+      <label style="display:flex; gap:6px; align-items:center; margin-left:auto">
+        <input type="checkbox" id="eventsToggle" checked /> Random Events
+      </label>
+    </div>
+    <div id="grid" class="grid" aria-label="Game board"></div>
+    <div class="pill" style="margin-top:10px">Phase: <span id="phaseLabel">Expand</span></div>
+  </section>
+  <aside class="side">
+    <div class="card">
+      <h3>Resources</h3>
+      <div class="stats">
+        <div class="stat"><div class="label">Food</div><div id="foodVal" class="value">0</div></div>
+        <div class="stat"><div class="label">Gold</div><div id="goldVal" class="value">0</div></div>
+        <div class="stat"><div class="label">Culture</div><div id="cultureVal" class="value">0</div></div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px">
+        <div class="stat"><div class="label">Tiles</div><div id="tilesVal" class="value">0</div></div>
+        <div class="stat"><div class="label">Defense</div><div id="defVal" class="value">0</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Rival Score</h3>
+      <div class="stats">
+        <div class="stat"><div class="label">Enemy Food</div><div id="eFood" class="value">0</div></div>
+        <div class="stat"><div class="label">Enemy Gold</div><div id="eGold" class="value">0</div></div>
+        <div class="stat"><div class="label">Enemy Culture</div><div id="eCulture" class="value">0</div></div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px">
+        <div class="stat"><div class="label">Enemy Tiles</div><div id="eTiles" class="value">0</div></div>
+        <div class="stat"><div class="label">Shadow Score</div><div id="eScore" class="value">0</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Upgrades & Buildings</h3>
+      <div class="shop-list" id="shop"></div>
+      <div id="farmAssign" style="display:none; margin-top:8px">
+        <small>Assign Farm to a River-adjacent Village:</small>
+        <select id="farmVillageSelect"></select>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>High Scores</h3>
+      <div style="display:grid; gap:8px; margin-bottom:8px">
+        <input id="playerName" placeholder="Your name" maxlength="32" />
+        <div style="display:flex; gap:8px">
+          <button id="submitScoreBtn">Submit Current Score</button>
+          <button id="refreshScoresBtn">Refresh</button>
+        </div>
+        <small>Backend (optional, for shared leaderboard):</small>
+        <input id="backendUrl" placeholder="https://your-endpoint.example/api/scores" />
+        <div style="display:flex; gap:8px">
+          <button id="saveBackendBtn">Use This Endpoint</button>
+          <button id="useLocalBtn">Use Local Only</button>
+        </div>
+      </div>
+      <div class="list" id="scoresList"></div>
+    </div>
+
+    <div class="card">
+      <h3>Event Log</h3>
+      <div id="log" class="log" role="log" aria-live="polite"></div>
+      <button id="scoreBtn">Compute Score</button>
+    </div>
+  </aside>
+</main>
+<script>
+(function(){
+  const SIZE = 10; const TURNS_MAX = 20;
+  const Terrain = { PLAIN:'plain', VILLAGE:'village', RIVER:'river', MOUNTAIN:'mountain' };
+  const Phase = { SETUP:'Setup', PLACE_CAPITAL:'Place Capital', EXPAND:'Expand', AWAIT_END:'Await End Turn', GAME_OVER:'Game Over' };
+
+  // Leaderboard storage
+  const LS_KEY = 'empire-v4-leaderboard';
+  const BE_KEY = 'empire-v4-backend-url';
+  const Storage = {
+    get backend(){ return localStorage.getItem(BE_KEY) || ''; },
+    set backend(url){ if(url) localStorage.setItem(BE_KEY, url); else localStorage.removeItem(BE_KEY); },
+    async load(){ const url=this.backend; if(!url){ const raw=localStorage.getItem(LS_KEY); return Array.isArray(JSON.parse(raw||'[]'))? JSON.parse(raw||'[]'):[]; } try{ const res=await fetch(url,{method:'GET'}); if(!res.ok) throw new Error('HTTP '+res.status); const data=await res.json(); return Array.isArray(data)?data:(Array.isArray(data.items)?data.items:[]);}catch(e){ const raw=localStorage.getItem(LS_KEY); return JSON.parse(raw||'[]'); }},
+    async save(entry){ const url=this.backend; const list=await this.load(); list.push(entry); list.sort((a,b)=>b.score-a.score); const trimmed=list.slice(0,50); localStorage.setItem(LS_KEY, JSON.stringify(trimmed)); if(!url) return trimmed; try{ const res=await fetch(url,{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(entry)}); if(!res.ok) throw new Error('HTTP '+res.status);}catch(e){} return trimmed; }
+  };
+
+  // DOM
+  const gridEl = document.getElementById('grid');
+  const phaseLabel = document.getElementById('phaseLabel');
+  const turnPill = document.getElementById('turnPill');
+  const vsPill = document.getElementById('vsPill');
+  const modePill = document.getElementById('modePill');
+  const foodVal = document.getElementById('foodVal');
+  const goldVal = document.getElementById('goldVal');
+  const cultureVal = document.getElementById('cultureVal');
+  const tilesVal = document.getElementById('tilesVal');
+  const defVal = document.getElementById('defVal');
+  const eFoodVal = document.getElementById('eFood');
+  const eGoldVal = document.getElementById('eGold');
+  const eCultureVal = document.getElementById('eCulture');
+  const eTilesVal = document.getElementById('eTiles');
+  const eScoreVal = document.getElementById('eScore');
+  const logEl = document.getElementById('log');
+  const shopEl = document.getElementById('shop');
+  const farmAssignEl = document.getElementById('farmAssign');
+  const farmVillageSelect = document.getElementById('farmVillageSelect');
+  const playerNameEl = document.getElementById('playerName');
+  const submitScoreBtn = document.getElementById('submitScoreBtn');
+  const refreshScoresBtn = document.getElementById('refreshScoresBtn');
+  const scoresList = document.getElementById('scoresList');
+  const backendUrlEl = document.getElementById('backendUrl');
+  const saveBackendBtn = document.getElementById('saveBackendBtn');
+  const useLocalBtn = document.getElementById('useLocalBtn');
+
+  const expandBtn = document.getElementById('expandBtn');
+  const endTurnBtn = document.getElementById('endTurnBtn');
+  const scoreBtn = document.getElementById('scoreBtn');
+  const newGameBtn = document.getElementById('newGameBtn');
+  const saveBtn = document.getElementById('saveBtn');
+  const loadBtn = document.getElementById('loadBtn');
+  const eventsToggle = document.getElementById('eventsToggle');
+  const cancelBtn = document.getElementById('cancelBtn');
+
+  let state;
+
+  function randInt(n){ return Math.floor(Math.random()*n); }
+  function coord(r,c){ return r*SIZE + c; }
+  function rcFrom(i){ return [Math.floor(i/SIZE), i%SIZE]; }
+  function inBounds(r,c){ return r>=0 && c>=0 && r<SIZE && c<SIZE; }
+
+  function newMap(){
+    const cells = new Array(SIZE*SIZE).fill(0).map(()=>({ t:Terrain.PLAIN, controlled:false, capital:false, farmBoost:false, enemy:false, enemyCapital:false }));
+    let placed=0; while(placed<5){ const i=randInt(cells.length); if(cells[i].t===Terrain.PLAIN){ cells[i].t=Terrain.VILLAGE; placed++; }}
+    placed=0; while(placed<3){ const i=randInt(cells.length); if(cells[i].t===Terrain.PLAIN){ cells[i].t=Terrain.MOUNTAIN; placed++; }}
+    for(let k=0;k<2;k++){ const horizontal=Math.random()<0.5; if(horizontal){ const row=randInt(SIZE); for(let c=0;c<SIZE;c++){ const i=coord(row,c); if(cells[i].t!==Terrain.MOUNTAIN) cells[i].t=Terrain.RIVER; }} else { const col=randInt(SIZE); for(let r=0;r<SIZE;r++){ const i=coord(r,col); if(cells[i].t!==Terrain.MOUNTAIN) cells[i].t=Terrain.RIVER; }}}
+    return cells;
+  }
+
+  function initialState(){
+    const cells = newMap();
+    // enemy capital
+    let enemyCap=null; while(enemyCap===null){ const i=randInt(cells.length); if(cells[i].t!==Terrain.MOUNTAIN){ enemyCap=i; }}
+    cells[enemyCap].enemy=true; cells[enemyCap].enemyCapital=true;
+    // player capital random (not mountain, not enemy)
+    let playerCap=null; while(playerCap===null){ const i=randInt(cells.length); if(i!==enemyCap && cells[i].t!==Terrain.MOUNTAIN){ playerCap=i; }}
+    cells[playerCap].capital=true; cells[playerCap].controlled=true;
+    return {
+      turn:0, phase: Phase.EXPAND, cells,
+      capitalIndex: playerCap,
+      food:0, gold:0, culture:0, defense:0,
+      markets:0, temples:0, mining:false, farms:[],
+      eventLog:[], extraExpansion:false, expansionsThisTurn:0,
+      builtThisTurn:false,
+      eFood:0, eGold:0, eCulture:0,
+      enemyCapIndex: enemyCap,
+      pendingNewVillage:false, pendingFarmAssign:false,
+      submittedScore:false,
+      pendingRefund:null
+    };
+  }
+
+  function log(msg){ state.eventLog.unshift(`[T${state.turn}] ${msg}`); renderLog(); }
+  function renderLog(){ logEl.innerHTML = state.eventLog.map(l=>`<p>${escapeHtml(l)}</p>`).join(''); }
+  function escapeHtml(s){ return s.replace(/[&<>"']/g, ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch])); }
+
+  function clearPlacements(){
+    if(state.pendingRefund){
+      if(state.pendingRefund.type==='farm'){ state.gold += 3; }
+      if(state.pendingRefund.type==='newVillage'){ state.gold += 20; }
+      state.pendingRefund=null; state.builtThisTurn=false; log('Placement canceled and resources refunded.');
+    }
+    state.pendingNewVillage=false; state.pendingFarmAssign=false; farmAssignEl.style.display='none'; modePill.style.display='none'; cancelBtn.style.display='none';
+  }
+
+  function render(){
+    phaseLabel.textContent = state.phase; turnPill.textContent = `Turn ${state.turn} / ${TURNS_MAX}`;
+    foodVal.textContent = state.food; goldVal.textContent = state.gold; cultureVal.textContent = state.culture;
+    tilesVal.textContent = state.cells.filter(c=>c.controlled).length; defVal.textContent = state.defense;
+
+    const eTiles = state.cells.filter(c=>c.enemy||c.enemyCapital).length;
+    eFoodVal.textContent = state.eFood; eGoldVal.textContent = state.eGold; eCultureVal.textContent = state.eCulture; eTilesVal.textContent = eTiles;
+
+    const myScore = currentPlayerScore(); const enemyScore = currentEnemyScore(); eScoreVal.textContent = enemyScore; vsPill.textContent = `You ${myScore} vs ${enemyScore} Shadow`;
+
+    endTurnBtn.disabled = !(state.phase === Phase.AWAIT_END || (state.phase===Phase.EXPAND && state.expansionsThisTurn>0));
+    expandBtn.disabled = state.pendingNewVillage || state.pendingFarmAssign;
+    cancelBtn.style.display = (state.pendingNewVillage || state.pendingFarmAssign) ? 'inline-block':'none';
+    modePill.style.display = (state.pendingNewVillage || state.pendingFarmAssign) ? 'inline-block':'none';
+
+    backendUrlEl.value = Storage.backend;
+
+    renderShop();
+
+    gridEl.innerHTML = '';
+    for(let r=0;r<SIZE;r++){
+      for(let c=0;c<SIZE;c++){
+        const i = coord(r,c); const cell = state.cells[i];
+        const el = document.createElement('div');
+        el.className = `cell ${cell.t} ${cell.controlled?'controlled':''} ${cell.capital?'capital':''} ${cell.enemy?'enemy':''} ${cell.enemyCapital?'enemyFlag':''}`;
+        el.dataset.index = i; el.title = `${String.fromCharCode(65+r)}${c+1}`;
+        const icon = document.createElement('span'); icon.className='icon';
+        icon.textContent = cell.capital ? '★' : cell.enemyCapital ? '⚑' : (cell.enemy ? '♜' : (cell.t==='village'?'🏡': cell.t==='mountain'?'⛰️': cell.t==='river'?'〰️':'·'));
+        const coordEl = document.createElement('div'); coordEl.className='coord'; coordEl.textContent = `${String.fromCharCode(65+r)}${c+1}`;
+        el.appendChild(coordEl); el.appendChild(icon); el.addEventListener('click', onCellClick);
+        gridEl.appendChild(el);
+      }
+    }
+  }
+
+  function neighbors4(i){ const [r,c]=rcFrom(i); return [[r-1,c],[r+1,c],[r,c-1],[r,c+1]].filter(([rr,cc])=>inBounds(rr,cc)).map(([rr,cc])=>coord(rr,cc)); }
+  function isAdjacentToEmpire(i){ return neighbors4(i).some(n => state.cells[n].controlled || state.cells[n].capital); }
+  function isAdjToRiver(i){ return neighbors4(i).some(n => state.cells[n].t===Terrain.RIVER); }
+  function canClaimNow(){ const maxClaims = state.extraExpansion ? 2 : 1; return state.expansionsThisTurn < maxClaims; }
+
+  function onCellClick(e){
+    const i = parseInt(e.currentTarget.dataset.index,10);
+    if(state.pendingNewVillage){
+      const cell = state.cells[i]; if(!(cell.controlled) || cell.t!==Terrain.PLAIN){ log('Place New Village on a controlled Plain tile.'); return; }
+      cell.t = Terrain.VILLAGE; state.pendingNewVillage=false; modePill.style.display='none'; cancelBtn.style.display='none'; state.pendingRefund=null; log(`Founded a new Village at ${cellName(i)}.`); render(); return;
+    }
+    if(state.pendingFarmAssign){
+      const idx=i; const cell=state.cells[idx]; if(!(cell.controlled||cell.capital) || cell.t!==Terrain.VILLAGE || !isAdjToRiver(idx)){ log('Pick a controlled Village next to a River.'); return; }
+      if(!state.farms.includes(idx)) state.farms.push(idx); state.cells[idx].farmBoost=true; state.pendingFarmAssign=false; farmAssignEl.style.display='none'; modePill.style.display='none'; cancelBtn.style.display='none'; state.pendingRefund=null; log(`Farm assigned to Village ${cellName(idx)} (double Food).`); render(); return;
+    }
+    if(state.phase === Phase.EXPAND || state.phase === Phase.AWAIT_END){ tryClaim(i); return; }
+  }
+
+  function tryClaim(i){
+    const cell = state.cells[i];
+    if(!(state.phase === Phase.EXPAND || state.phase === Phase.AWAIT_END)) { log('Not in expansion phase.'); return; }
+    if(!canClaimNow()){ log('No expansions left this turn. Click End Turn.'); return; }
+    if(cell.controlled || cell.capital){ log('Tile already controlled.'); return; }
+    if(cell.enemy || cell.enemyCapital){ log('Enemy controls this tile.'); return; }
+    if(!isAdjacentToEmpire(i)){ log('You may only claim tiles adjacent to your empire.'); return; }
+    if(cell.t === Terrain.MOUNTAIN && !state.mining){ log('Mountains are blocked until you buy Mining Tech.'); return; }
+    if(cell.t === Terrain.RIVER){ state.food -= 1; log(`Crossed a river at ${cellName(i)} (−1 Food).`); }
+    cell.controlled = true; log(`Claimed ${cellName(i)} (${terrainLabel(cell.t)}).`);
+    state.expansionsThisTurn++; state.phase = state.expansionsThisTurn >= (state.extraExpansion?2:1) ? Phase.AWAIT_END : Phase.EXPAND; render();
+  }
+
+  function cellName(i){ const [r,c] = rcFrom(i); return `${String.fromCharCode(65+r)}${c+1}`; }
+  function terrainLabel(t){ return t===Terrain.VILLAGE?'Village': t===Terrain.RIVER?'River': t===Terrain.MOUNTAIN?'Mountain':'Plain'; }
+
+  function gatherResources(){
+    let addF=0, addG=0, addC=0;
+    state.cells.forEach((cell, idx)=>{
+      if(cell.capital){ addF+=1; addG+=1; addC+=1; }
+      if(cell.controlled){ switch(cell.t){ case Terrain.PLAIN: addF+=1; break; case Terrain.VILLAGE: { let fg=1; if(state.farms.includes(idx)) fg*=2; addF+=fg; addC+=1; break; } case Terrain.RIVER: addG+=1; break; case Terrain.MOUNTAIN: break; } }
+    });
+    addG += state.markets; addC += state.temples; state.food += addF; state.gold += addG; state.culture += addC; log(`Harvest: +${addF} F, +${addG} G, +${addC} C.`);
+
+    let eF=0,eG=0,eC=0; state.cells.forEach((cell)=>{ if(cell.enemyCapital){ eF+=1; eG+=1; eC+=1; } if(cell.enemy){ switch(cell.t){ case Terrain.PLAIN: eF+=1; break; case Terrain.VILLAGE: eF+=1; eC+=1; break; case Terrain.RIVER: eG+=1; break; } }});
+    state.eFood += eF; state.eGold += eG; state.eCulture += eC;
+  }
+
+  function doEvent(){ if(!eventsToggle.checked) { log('Quiet year (events off).'); return; } const roll=1+randInt(6); switch(roll){ case 1: if(state.defense>0){ log('Bandit raid thwarted by your Fort!'); } else { state.gold=Math.max(0,state.gold-2); log('Bandit raid! −2 Gold.'); } break; case 2: state.food=Math.max(0,state.food-2); log('Drought hits the fields. −2 Food.'); break; case 3: state.culture+=2; log('Grand festival! +2 Culture.'); break; case 4: state.gold+=3; log('Wealthy merchant arrives. +3 Gold.'); break; case 5: state.extraExpansion=true; log('New settlers! You may claim 1 extra tile this turn.'); break; case 6: log('Quiet year.'); break; }}
+
+  function enemyExpand(){
+    const frontier=[]; state.cells.forEach((cell, idx)=>{ if(cell.enemy || cell.enemyCapital){ neighbors4(idx).forEach(n=>{ const t=state.cells[n]; if(!t.enemy && !t.enemyCapital && !t.controlled && !t.capital){ if(t.t !== Terrain.MOUNTAIN){ frontier.push(n); } }}); }} );
+    if(frontier.length===0){ log('Shadow empire cannot expand further.'); return; }
+    const pref = frontier.filter(i=> state.cells[i].t===Terrain.VILLAGE || state.cells[i].t===Terrain.RIVER);
+    const choice = (pref.length? pref : frontier)[randInt(pref.length? pref.length: frontier.length)]; state.cells[choice].enemy = true; log(`Shadow empire claims ${cellName(choice)}.`);
+  }
+
+  function endTurn(){
+    if((state.pendingNewVillage || state.pendingFarmAssign)) { log('Finish or cancel placement before ending the turn.'); return; }
+    if(state.phase === Phase.EXPAND && state.expansionsThisTurn===0){ log('Claim a tile first (Expand).'); return; }
+    gatherResources(); doEvent(); enemyExpand();
+    state.turn++; state.extraExpansion=false; state.expansionsThisTurn=0; state.builtThisTurn=false;
+    if(state.turn >= TURNS_MAX){ state.phase = Phase.GAME_OVER; log('Game Over. Calculating final score...'); computeScore(true); } else { state.phase = Phase.EXPAND; }
+    render();
+  }
+
+  function currentPlayerScore(){ const tiles = state.cells.filter(c=>c.controlled).length; let bonus=0; if(tiles>=40) bonus+=5; if(state.temples>=3) bonus+=5; return Math.floor(state.food/2) + Math.floor(state.gold/2) + (state.culture*2) + bonus; }
+  function currentEnemyScore(){ const eTiles = state.cells.filter(c=>c.enemy||c.enemyCapital).length; let bonus=0; if(eTiles>=40) bonus+=5; return Math.floor(state.eFood/2) + Math.floor(state.eGold/2) + (state.eCulture*2) + bonus; }
+
+  async function computeScore(autoSubmit=false){
+    const tiles = state.cells.filter(c=>c.controlled).length; let bonus=0; if(tiles>=40) bonus+=5; if(state.temples>=3) bonus+=5;
+    const total = Math.floor(state.food/2) + Math.floor(state.gold/2) + (state.culture*2) + bonus;
+    const eTiles = state.cells.filter(c=>c.enemy||c.enemyCapital).length; let eBonus=0; if(eTiles>=40) eBonus+=5; const eTotal = Math.floor(state.eFood/2) + Math.floor(state.eGold/2) + (state.eCulture*2) + eBonus;
+    const title = total<=25? 'Wandering Tribe' : total<=50? 'Small Kingdom' : total<=75? 'Prosperous Realm' : total<=100? 'Glorious Empire' : 'Legendary Dynasty ✨';
+    const msg = `Final Score
+
+YOU: ${total} (Tiles ${tiles}, F ${state.food}, G ${state.gold}, C ${state.culture})
+SHADOW: ${eTotal} (Tiles ${eTiles}, F ${state.eFood}, G ${state.eGold}, C ${state.eCulture})
+
+Title: ${title}`;
+    alert(msg);
+log(msg.replace(/\n/g, ' '));
+    if(autoSubmit && !state.submittedScore){ await submitScore(total); }
+  }
+
+  function countControlledVillages(){ return state.cells.filter(c=> (c.controlled||c.capital) && c.t===Terrain.VILLAGE).length; }
+  function eligibleRiverVillages(){ return state.cells.map((c,idx)=>({c,idx})).filter(o=> (o.c.t===Terrain.VILLAGE) && (o.c.controlled||o.c.capital) && isAdjToRiver(o.idx)); }
+  function hasControlledPlain(){ return state.cells.some(c=> c.controlled && c.t===Terrain.PLAIN); }
+
+  function renderShop(){
+    const canBuildNow = !state.builtThisTurn && state.phase !== Phase.GAME_OVER;
+    const villageCount = countControlledVillages();
+    const templeLimit = 3 * villageCount;
+    const marketLimit = 2 * villageCount;
+
+    const items = [
+      { key:'farm', name:'Farm (assign to river-adjacent village)', cost:"3 Gold", afford: state.gold>=3 && canBuildNow && eligibleRiverVillages().length>0,
+        buy: ()=>{ if(state.gold<3 || !canBuildNow) return; const elig=eligibleRiverVillages(); if(elig.length===0){ log('No river-adjacent controlled villages to assign a Farm.'); return; }
+          state.gold-=3; state.builtThisTurn=true; state.pendingFarmAssign=true; state.pendingRefund={type:'farm'}; farmAssignEl.style.display='block'; populateVillageSelect(); modePill.style.display='inline-block'; cancelBtn.style.display='inline-block'; log('Built a Farm. Click a river-adjacent Village to assign.'); render(); }
+      },
+      { key:'market', name:`Market (+1 Gold/turn) — limit ${marketLimit}`, cost:"4 Gold", afford: state.gold>=4 && canBuildNow && state.markets < marketLimit,
+        buy: ()=>{ if(state.gold<4 || !canBuildNow) return; if(state.markets>=marketLimit){ log('Market limit reached (2 per Village).'); return; } state.gold-=4; state.markets++; state.builtThisTurn=true; log('Built a Market. (Build limit reached this turn)'); render(); }
+      },
+      { key:'fort', name:'Fort (+1 Defense)', cost:"5 Food", afford: state.food>=5 && canBuildNow,
+        buy: ()=>{ if(state.food<5 || !canBuildNow) return; state.food-=5; state.defense++; state.builtThisTurn=true; log('Constructed a Fort. (Build limit reached this turn)'); render(); }
+      },
+      { key:'mining', name:'Mining Tech (enter Mountains)', cost:"6 Gold", afford: state.gold>=6 && !state.mining && canBuildNow,
+        buy: ()=>{ if(state.gold<6 || state.mining || !canBuildNow) return; state.gold-=6; state.mining=true; state.builtThisTurn=true; log('Researched Mining. Mountains can now be claimed. (Build limit reached this turn)'); render(); }
+      },
+      { key:'temple', name:`Temple (+1 Culture/turn) — limit ${templeLimit}`, cost:"3 Culture", afford: state.culture>=3 && canBuildNow && state.temples < templeLimit && villageCount>0,
+        buy: ()=>{ if(state.culture<3 || !canBuildNow) return; if(villageCount===0){ log('You need at least 1 controlled Village to build a Temple.'); return; } if(state.temples >= templeLimit){ log('Temple limit reached (3 per Village).'); return; } state.culture-=3; state.temples++; state.builtThisTurn=true; log('Raised a Temple. (Build limit reached this turn)'); render(); }
+      },
+      { key:'newVillage', name:'Found New Village (convert a controlled Plain)', cost:"20 Gold", afford: state.gold>=20 && canBuildNow && hasControlledPlain(),
+        buy: ()=>{ if(state.gold<20 || !canBuildNow) return; if(!hasControlledPlain()){ log('No controlled Plain to convert.'); return; } state.gold-=20; state.builtThisTurn=true; state.pendingNewVillage=true; state.pendingRefund={type:'newVillage'}; modePill.style.display='inline-block'; cancelBtn.style.display='inline-block'; log('Paid 20 Gold. Click a controlled Plain tile to found a Village.'); render(); }
+      },
+    ];
+
+    shopEl.innerHTML = '';
+    items.forEach(it=>{ const row=document.createElement('div'); row.className='shop-item'; const left=document.createElement('div'); left.innerHTML=`<div>${it.name}</div><div class=\"meta\">Cost: ${it.cost}${(!canBuildNow?' — (limit reached this turn)':'')}</div>`; const btn=document.createElement('button'); btn.textContent='Buy'; btn.disabled=!it.afford; btn.addEventListener('click', it.buy); row.appendChild(left); row.appendChild(btn); shopEl.appendChild(row); });
+  }
+
+  function populateVillageSelect(){ farmVillageSelect.innerHTML=''; eligibleRiverVillages().forEach(o=>{ const opt=document.createElement('option'); opt.value=o.idx; opt.textContent=cellName(o.idx); farmVillageSelect.appendChild(opt); }); }
+
+  farmVillageSelect?.addEventListener('change', ()=>{ const idx=parseInt(farmVillageSelect.value,10); if(!Number.isFinite(idx)) return; if(!state.farms.includes(idx)) state.farms.push(idx); state.cells[idx].farmBoost=true; farmAssignEl.style.display='none'; state.pendingFarmAssign=false; modePill.style.display='none'; cancelBtn.style.display='none'; state.pendingRefund=null; log(`Farm assigned to Village ${cellName(idx)} (double Food).`); render(); });
+
+  cancelBtn.addEventListener('click', ()=>{ clearPlacements(); render(); });
+
+  endTurnBtn.addEventListener('click', endTurn);
+  expandBtn.addEventListener('click', ()=>{ if(!canClaimNow()) log('No expansions left this turn. End Turn to continue.'); else log('Select an adjacent tile to claim.'); });
+  scoreBtn.addEventListener('click', ()=> computeScore(false));
+  newGameBtn.addEventListener('click', ()=>{ state = initialState(); submitScoreBtn.disabled=false; log('New map generated. Your capital was placed randomly.'); const capIdx=state.capitalIndex; if(capIdx>=0) log(`Your capital was placed at ${cellName(capIdx)}.`); render(); });
+  saveBtn.addEventListener('click', ()=>{ try{ localStorage.setItem('empire-save-v4-1', JSON.stringify(state)); log('Game saved.'); render(); }catch(e){ alert('Save failed.'); }});
+  loadBtn.addEventListener('click', ()=>{ try{ const raw=localStorage.getItem('empire-save-v4-1'); if(!raw) return alert('No save found.'); state=JSON.parse(raw); log('Save loaded.'); render(); }catch(e){ alert('Load failed.'); }});
+
+  saveBackendBtn.addEventListener('click', ()=>{ Storage.backend = backendUrlEl.value.trim(); log(Storage.backend ? 'Remote backend set for shared leaderboard.' : 'Backend cleared.'); refreshScores(); });
+  useLocalBtn.addEventListener('click', ()=>{ Storage.backend = ''; log('Using local leaderboard only (device-scoped).'); refreshScores(); });
+  refreshScoresBtn.addEventListener('click', refreshScores);
+  submitScoreBtn.addEventListener('click', async ()=>{ const score=currentPlayerScore(); await submitScore(score); });
+
+  async function submitScore(score){
+    if(state.submittedScore){ log('Score already submitted for this game.'); submitScoreBtn.disabled=true; return; }
+    const name = (playerNameEl.value || 'Player').slice(0,32);
+    const entry = { name, score, date: new Date().toISOString(), turns: state.turn };
+    const list = await Storage.save(entry); renderScores(list);
+    state.submittedScore=true; submitScoreBtn.disabled=true; log(`Score submitted: ${name} — ${score}`);
+  }
+
+  async function refreshScores(){ const list = await Storage.load(); renderScores(list); }
+  function renderScores(list){ scoresList.innerHTML=''; (list||[]).slice(0,20).forEach((s,idx)=>{ const row=document.createElement('div'); row.className='row'; row.innerHTML = `#${idx+1} <strong>${escapeHtml(s.name||'Player')}</strong><span></span><div>${s.score}</div><div style="opacity:.7; font-size:12px">${new Date(s.date||Date.now()).toLocaleString()}</div>`; scoresList.appendChild(row); }); }
+
+  // Boot
+  state = initialState();
+  playerNameEl.value = localStorage.getItem('empire-v4-name') || '';
+  playerNameEl.addEventListener('input', ()=> localStorage.setItem('empire-v4-name', playerNameEl.value));
+  const capIdx = state.capitalIndex; if(capIdx>=0){ log(`Your capital was placed at ${cellName(capIdx)}.`); }
+  log('Rules: Random starting capital. 1 build/turn. Cancel during placement refunds resources and allows another build. Markets = 2/Village, Temples = 3/Village, Farms need river-adjacent villages, New Village costs 20 Gold. High score can be submitted once per game.');
+  refreshScores();
+  render();
+})();
+</script>
+</body>
+</html>
