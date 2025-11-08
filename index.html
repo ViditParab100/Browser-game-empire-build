@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Empire Builder — Solo Strategy (v4.1)</title>
+  <title>Empire Builder — Solo Strategy (v4.2)</title>
   <style>
     :root{ --bg:#0f172a; --panel:#111827; --muted:#334155; --text:#e5e7eb; --primary:#60a5fa; }
     *{box-sizing:border-box}
@@ -48,7 +48,7 @@
 </head>
 <body>
 <header>
-  <h1>🏰 Empire Builder — Solo Strategy (v4.1)</h1>
+  <h1>🏰 Empire Builder — Solo Strategy (v4.2)</h1>
   <div class="scorebar">
     <span class="pill" id="turnPill">Turn 0 / 20</span>
     <span class="pill" id="vsPill">You 0 vs 0 Shadow</span>
@@ -144,8 +144,9 @@
   // Leaderboard storage
   const LS_KEY = 'empire-v4-leaderboard';
   const BE_KEY = 'empire-v4-backend-url';
-  const Storage = {
-    get backend(){ return localStorage.getItem(BE_KEY) || ''; },
+const DEFAULT_BE = 'https://empire-scores.dark-star.workers.dev/scores';
+const Storage = {
+  get backend(){ return localStorage.getItem(BE_KEY) || DEFAULT_BE; },
     set backend(url){ if(url) localStorage.setItem(BE_KEY, url); else localStorage.removeItem(BE_KEY); },
     async load(){ const url=this.backend; if(!url){ const raw=localStorage.getItem(LS_KEY); return Array.isArray(JSON.parse(raw||'[]'))? JSON.parse(raw||'[]'):[]; } try{ const res=await fetch(url,{method:'GET'}); if(!res.ok) throw new Error('HTTP '+res.status); const data=await res.json(); return Array.isArray(data)?data:(Array.isArray(data.items)?data.items:[]);}catch(e){ const raw=localStorage.getItem(LS_KEY); return JSON.parse(raw||'[]'); }},
     async save(entry){ const url=this.backend; const list=await this.load(); list.push(entry); list.sort((a,b)=>b.score-a.score); const trimmed=list.slice(0,50); localStorage.setItem(LS_KEY, JSON.stringify(trimmed)); if(!url) return trimmed; try{ const res=await fetch(url,{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(entry)}); if(!res.ok) throw new Error('HTTP '+res.status);}catch(e){} return trimmed; }
@@ -256,6 +257,9 @@
 
     backendUrlEl.value = Storage.backend;
 
+    // Enable score submit only after Game Over
+    submitScoreBtn.disabled = !(state.phase === Phase.GAME_OVER) || state.submittedScore;
+
     renderShop();
 
     gridEl.innerHTML = '';
@@ -334,14 +338,14 @@
     if(state.phase === Phase.EXPAND && state.expansionsThisTurn===0){ log('Claim a tile first (Expand).'); return; }
     gatherResources(); doEvent(); enemyExpand();
     state.turn++; state.extraExpansion=false; state.expansionsThisTurn=0; state.builtThisTurn=false;
-    if(state.turn >= TURNS_MAX){ state.phase = Phase.GAME_OVER; log('Game Over. Calculating final score...'); computeScore(true); } else { state.phase = Phase.EXPAND; }
+    if(state.turn >= TURNS_MAX){ state.phase = Phase.GAME_OVER; log('Game Over. Compute your final score and submit it.'); computeScore(); } else { state.phase = Phase.EXPAND; }
     render();
   }
 
   function currentPlayerScore(){ const tiles = state.cells.filter(c=>c.controlled).length; let bonus=0; if(tiles>=40) bonus+=5; if(state.temples>=3) bonus+=5; return Math.floor(state.food/2) + Math.floor(state.gold/2) + (state.culture*2) + bonus; }
   function currentEnemyScore(){ const eTiles = state.cells.filter(c=>c.enemy||c.enemyCapital).length; let bonus=0; if(eTiles>=40) bonus+=5; return Math.floor(state.eFood/2) + Math.floor(state.eGold/2) + (state.eCulture*2) + bonus; }
 
-  async function computeScore(autoSubmit=false){
+  async function computeScore(){
     const tiles = state.cells.filter(c=>c.controlled).length; let bonus=0; if(tiles>=40) bonus+=5; if(state.temples>=3) bonus+=5;
     const total = Math.floor(state.food/2) + Math.floor(state.gold/2) + (state.culture*2) + bonus;
     const eTiles = state.cells.filter(c=>c.enemy||c.enemyCapital).length; let eBonus=0; if(eTiles>=40) eBonus+=5; const eTotal = Math.floor(state.eFood/2) + Math.floor(state.eGold/2) + (state.eCulture*2) + eBonus;
@@ -351,10 +355,11 @@
 YOU: ${total} (Tiles ${tiles}, F ${state.food}, G ${state.gold}, C ${state.culture})
 SHADOW: ${eTotal} (Tiles ${eTiles}, F ${state.eFood}, G ${state.eGold}, C ${state.eCulture})
 
-Title: ${title}`;
+Title: ${title}
+
+➡ Now enter your name and press \"Submit Current Score\".`;
     alert(msg);
 log(msg.replace(/\n/g, ' '));
-    if(autoSubmit && !state.submittedScore){ await submitScore(total); }
   }
 
   function countControlledVillages(){ return state.cells.filter(c=> (c.controlled||c.capital) && c.t===Terrain.VILLAGE).length; }
@@ -402,21 +407,27 @@ log(msg.replace(/\n/g, ' '));
   endTurnBtn.addEventListener('click', endTurn);
   expandBtn.addEventListener('click', ()=>{ if(!canClaimNow()) log('No expansions left this turn. End Turn to continue.'); else log('Select an adjacent tile to claim.'); });
   scoreBtn.addEventListener('click', ()=> computeScore(false));
-  newGameBtn.addEventListener('click', ()=>{ state = initialState(); submitScoreBtn.disabled=false; log('New map generated. Your capital was placed randomly.'); const capIdx=state.capitalIndex; if(capIdx>=0) log(`Your capital was placed at ${cellName(capIdx)}.`); render(); });
+  newGameBtn.addEventListener('click', ()=>{ state = initialState(); state.submittedScore=false; playerNameEl.value=''; submitScoreBtn.disabled=true; log('New map generated. Your capital was placed randomly.'); const capIdx=state.capitalIndex; if(capIdx>=0) log(`Your capital was placed at ${cellName(capIdx)}.`); render(); });
   saveBtn.addEventListener('click', ()=>{ try{ localStorage.setItem('empire-save-v4-1', JSON.stringify(state)); log('Game saved.'); render(); }catch(e){ alert('Save failed.'); }});
   loadBtn.addEventListener('click', ()=>{ try{ const raw=localStorage.getItem('empire-save-v4-1'); if(!raw) return alert('No save found.'); state=JSON.parse(raw); log('Save loaded.'); render(); }catch(e){ alert('Load failed.'); }});
 
   saveBackendBtn.addEventListener('click', ()=>{ Storage.backend = backendUrlEl.value.trim(); log(Storage.backend ? 'Remote backend set for shared leaderboard.' : 'Backend cleared.'); refreshScores(); });
   useLocalBtn.addEventListener('click', ()=>{ Storage.backend = ''; log('Using local leaderboard only (device-scoped).'); refreshScores(); });
   refreshScoresBtn.addEventListener('click', refreshScores);
-  submitScoreBtn.addEventListener('click', async ()=>{ const score=currentPlayerScore(); await submitScore(score); });
+  submitScoreBtn.addEventListener('click', async ()=>{ const score = currentPlayerScore(); await submitScore(score); });
 
   async function submitScore(score){
-    if(state.submittedScore){ log('Score already submitted for this game.'); submitScoreBtn.disabled=true; return; }
-    const name = (playerNameEl.value || 'Player').slice(0,32);
+    if(state.submittedScore){ log('Score already submitted for this game.'); submitScoreBtn.disabled = true; return; }
+    if(state.phase !== Phase.GAME_OVER){ log('You can submit only after the game ends. Click "End Turn" until Game Over, then Compute Score and submit.'); return; }
+    const raw = (playerNameEl.value || '').trim();
+    if(!raw){ log('Please enter your name before submitting.'); playerNameEl.focus(); return; }
+    const name = raw.slice(0,32);
     const entry = { name, score, date: new Date().toISOString(), turns: state.turn };
-    const list = await Storage.save(entry); renderScores(list);
-    state.submittedScore=true; submitScoreBtn.disabled=true; log(`Score submitted: ${name} — ${score}`);
+    const list = await Storage.save(entry);
+    renderScores(list);
+    state.submittedScore = true;
+    submitScoreBtn.disabled = true;
+    log(`Score submitted: ${name} — ${score}`);
   }
 
   async function refreshScores(){ const list = await Storage.load(); renderScores(list); }
@@ -424,10 +435,9 @@ log(msg.replace(/\n/g, ' '));
 
   // Boot
   state = initialState();
-  playerNameEl.value = localStorage.getItem('empire-v4-name') || '';
-  playerNameEl.addEventListener('input', ()=> localStorage.setItem('empire-v4-name', playerNameEl.value));
+  playerNameEl.value = ''; // start empty so the player fills their name at game end
   const capIdx = state.capitalIndex; if(capIdx>=0){ log(`Your capital was placed at ${cellName(capIdx)}.`); }
-  log('Rules: Random starting capital. 1 build/turn. Cancel during placement refunds resources and allows another build. Markets = 2/Village, Temples = 3/Village, Farms need river-adjacent villages, New Village costs 20 Gold. High score can be submitted once per game.');
+  log('Rules: Random starting capital. 1 build/turn. Cancel during placement refunds resources and allows another build. Markets = 2/Village, Temples = 3/Village, Farms need river-adjacent villages, New Village costs 20 Gold. After Game Over, enter your name and submit your score (once per game).');
   refreshScores();
   render();
 })();
