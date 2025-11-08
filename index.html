@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Empire Builder — Solo Strategy (v4.2)</title>
+  <title>Empire Builder — Solo Strategy (v4.3)</title>
   <style>
     :root{ --bg:#0f172a; --panel:#111827; --muted:#334155; --text:#e5e7eb; --primary:#60a5fa; }
     *{box-sizing:border-box}
@@ -48,7 +48,7 @@
 </head>
 <body>
 <header>
-  <h1>🏰 Empire Builder — Solo Strategy (v4.2)</h1>
+  <h1>🏰 Empire Builder — Solo Strategy (v4.3)</h1>
   <div class="scorebar">
     <span class="pill" id="turnPill">Turn 0 / 20</span>
     <span class="pill" id="vsPill">You 0 vs 0 Shadow</span>
@@ -118,12 +118,7 @@
           <button id="submitScoreBtn">Submit Current Score</button>
           <button id="refreshScoresBtn">Refresh</button>
         </div>
-        <small>Backend (optional, for shared leaderboard):</small>
-        <input id="backendUrl" placeholder="https://your-endpoint.example/api/scores" />
-        <div style="display:flex; gap:8px">
-          <button id="saveBackendBtn">Use This Endpoint</button>
-          <button id="useLocalBtn">Use Local Only</button>
-        </div>
+        
       </div>
       <div class="list" id="scoresList"></div>
     </div>
@@ -143,10 +138,9 @@
 
   // Leaderboard storage
   const LS_KEY = 'empire-v4-leaderboard';
-  const BE_KEY = 'empire-v4-backend-url';
-const DEFAULT_BE = 'https://empire-scores.dark-star.workers.dev/scores';
+  const DEFAULT_BE = 'https://empire-scores.dark-star.workers.dev/scores';
 const Storage = {
-  get backend(){ return localStorage.getItem(BE_KEY) || DEFAULT_BE; },
+  get backend(){ return DEFAULT_BE; },
     set backend(url){ if(url) localStorage.setItem(BE_KEY, url); else localStorage.removeItem(BE_KEY); },
     async load(){ const url=this.backend; if(!url){ const raw=localStorage.getItem(LS_KEY); return Array.isArray(JSON.parse(raw||'[]'))? JSON.parse(raw||'[]'):[]; } try{ const res=await fetch(url,{method:'GET'}); if(!res.ok) throw new Error('HTTP '+res.status); const data=await res.json(); return Array.isArray(data)?data:(Array.isArray(data.items)?data.items:[]);}catch(e){ const raw=localStorage.getItem(LS_KEY); return JSON.parse(raw||'[]'); }},
     async save(entry){ const url=this.backend; const list=await this.load(); list.push(entry); list.sort((a,b)=>b.score-a.score); const trimmed=list.slice(0,50); localStorage.setItem(LS_KEY, JSON.stringify(trimmed)); if(!url) return trimmed; try{ const res=await fetch(url,{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(entry)}); if(!res.ok) throw new Error('HTTP '+res.status);}catch(e){} return trimmed; }
@@ -176,9 +170,7 @@ const Storage = {
   const submitScoreBtn = document.getElementById('submitScoreBtn');
   const refreshScoresBtn = document.getElementById('refreshScoresBtn');
   const scoresList = document.getElementById('scoresList');
-  const backendUrlEl = document.getElementById('backendUrl');
-  const saveBackendBtn = document.getElementById('saveBackendBtn');
-  const useLocalBtn = document.getElementById('useLocalBtn');
+  /* backend controls removed */
 
   const expandBtn = document.getElementById('expandBtn');
   const endTurnBtn = document.getElementById('endTurnBtn');
@@ -190,6 +182,7 @@ const Storage = {
   const cancelBtn = document.getElementById('cancelBtn');
 
   let state;
+  let bootLogBuffer = [];
 
   function randInt(n){ return Math.floor(Math.random()*n); }
   function coord(r,c){ return r*SIZE + c; }
@@ -227,7 +220,15 @@ const Storage = {
     };
   }
 
-  function log(msg){ state.eventLog.unshift(`[T${state.turn}] ${msg}`); renderLog(); }
+  function log(msg){
+  if(!state || !state.eventLog){
+    bootLogBuffer.push(msg);   // buffer until state is ready
+    return;
+  }
+  state.eventLog.unshift(`[T${state.turn}] ${msg}`);
+  renderLog();
+}
+
   function renderLog(){ logEl.innerHTML = state.eventLog.map(l=>`<p>${escapeHtml(l)}</p>`).join(''); }
   function escapeHtml(s){ return s.replace(/[&<>"']/g, ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch])); }
 
@@ -255,7 +256,7 @@ const Storage = {
     cancelBtn.style.display = (state.pendingNewVillage || state.pendingFarmAssign) ? 'inline-block':'none';
     modePill.style.display = (state.pendingNewVillage || state.pendingFarmAssign) ? 'inline-block':'none';
 
-    backendUrlEl.value = Storage.backend;
+    /* backend override removed */
 
     // Enable score submit only after Game Over
     submitScoreBtn.disabled = !(state.phase === Phase.GAME_OVER) || state.submittedScore;
@@ -349,7 +350,7 @@ const Storage = {
     const tiles = state.cells.filter(c=>c.controlled).length; let bonus=0; if(tiles>=40) bonus+=5; if(state.temples>=3) bonus+=5;
     const total = Math.floor(state.food/2) + Math.floor(state.gold/2) + (state.culture*2) + bonus;
     const eTiles = state.cells.filter(c=>c.enemy||c.enemyCapital).length; let eBonus=0; if(eTiles>=40) eBonus+=5; const eTotal = Math.floor(state.eFood/2) + Math.floor(state.eGold/2) + (state.eCulture*2) + eBonus;
-    const title = total<=25? 'Wandering Tribe' : total<=50? 'Small Kingdom' : total<=75? 'Prosperous Realm' : total<=100? 'Glorious Empire' : 'Legendary Dynasty ✨';
+    const title = total<=25? 'Wandering Tribe' : total<=60? 'Small Kingdom' : total<=100? 'Prosperous Realm' : total<=150? 'Glorious Empire' : total<=220? 'Imperial Power' : total<=280? 'Ascendant Hegemon' : total<=350? 'World‑Spanning Empire' : 'Mythic Pantheon ✨';
     const msg = `Final Score
 
 YOU: ${total} (Tiles ${tiles}, F ${state.food}, G ${state.gold}, C ${state.culture})
@@ -411,8 +412,8 @@ log(msg.replace(/\n/g, ' '));
   saveBtn.addEventListener('click', ()=>{ try{ localStorage.setItem('empire-save-v4-1', JSON.stringify(state)); log('Game saved.'); render(); }catch(e){ alert('Save failed.'); }});
   loadBtn.addEventListener('click', ()=>{ try{ const raw=localStorage.getItem('empire-save-v4-1'); if(!raw) return alert('No save found.'); state=JSON.parse(raw); log('Save loaded.'); render(); }catch(e){ alert('Load failed.'); }});
 
-  saveBackendBtn.addEventListener('click', ()=>{ Storage.backend = backendUrlEl.value.trim(); log(Storage.backend ? 'Remote backend set for shared leaderboard.' : 'Backend cleared.'); refreshScores(); });
-  useLocalBtn.addEventListener('click', ()=>{ Storage.backend = ''; log('Using local leaderboard only (device-scoped).'); refreshScores(); });
+  /* backend override disabled */ log(Storage.backend ? 'Remote backend set for shared leaderboard.' : 'Backend cleared.'); refreshScores();
+  /* backend override disabled */ refreshScores(); 
   refreshScoresBtn.addEventListener('click', refreshScores);
   submitScoreBtn.addEventListener('click', async ()=>{ const score = currentPlayerScore(); await submitScore(score); });
 
@@ -433,13 +434,24 @@ log(msg.replace(/\n/g, ' '));
   async function refreshScores(){ const list = await Storage.load(); renderScores(list); }
   function renderScores(list){ scoresList.innerHTML=''; (list||[]).slice(0,20).forEach((s,idx)=>{ const row=document.createElement('div'); row.className='row'; row.innerHTML = `#${idx+1} <strong>${escapeHtml(s.name||'Player')}</strong><span></span><div>${s.score}</div><div style="opacity:.7; font-size:12px">${new Date(s.date||Date.now()).toLocaleString()}</div>`; scoresList.appendChild(row); }); }
 
-  // Boot
+    // Boot / inside init()
   state = initialState();
-  playerNameEl.value = ''; // start empty so the player fills their name at game end
-  const capIdx = state.capitalIndex; if(capIdx>=0){ log(`Your capital was placed at ${cellName(capIdx)}.`); }
-  log('Rules: Random starting capital. 1 build/turn. Cancel during placement refunds resources and allows another build. Markets = 2/Village, Temples = 3/Village, Farms need river-adjacent villages, New Village costs 20 Gold. After Game Over, enter your name and submit your score (once per game).');
-  refreshScores();
-  render();
+  render(); // make sure grid exists first
+
+  // flush anything logged early
+  if (bootLogBuffer.length){
+    bootLogBuffer.forEach(m => state.eventLog.unshift(`[T${state.turn}] ${m}`));
+    bootLogBuffer = [];
+    renderLog();
+  }
+
+  // NOW it’s safe to call log()
+  const capIdx = state.capitalIndex;
+  if (capIdx >= 0) log(`Your capital was placed at ${cellName(capIdx)}.`);
+  log('Rules: Random starting capital. 1 build/turn. Cancel during placement refunds resources and allows another build. Markets = 2/Village, Temples = 3/Village, Farms need river-adjacent villages, New Village costs 20 Gold. After Game Over, enter your name and submit your score (once per game). Shared leaderboard uses a single common backend.');
+  // kick off scores in the background
+  (async()=>{ try{ await refreshScores(); } catch(e){ log('Leaderboard unavailable right now; will use local cache.'); } })();
+
 })();
 </script>
 </body>
